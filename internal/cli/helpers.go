@@ -21,9 +21,14 @@ const (
 	MaxLimit = 250
 )
 
-// readStdin reads all piped content from stdin
+// readStdin reads all content from the process stdin.
 func readStdin() (string, error) {
-	reader := bufio.NewReader(os.Stdin)
+	return readStdinFrom(os.Stdin)
+}
+
+// readStdinFrom reads all content from reader and trims surrounding whitespace.
+func readStdinFrom(input io.Reader) (string, error) {
+	reader := bufio.NewReader(input)
 	var builder strings.Builder
 
 	for {
@@ -60,11 +65,18 @@ func parseCommaSeparated(s string) []string {
 	return result
 }
 
-// getDescriptionFromFlagOrStdin returns description from flag or stdin
-// Use "-" as flagValue to explicitly read from stdin (e.g., -d -)
+// getDescriptionFromFlagOrStdin returns the flag value, or reads stdin when the
+// flag is exactly "-". Stdin is never read for an ordinary flag value.
 func getDescriptionFromFlagOrStdin(flagValue string) (string, error) {
+	return getDescriptionFromFlagOrStdinWithReader(flagValue, os.Stdin)
+}
+
+func getDescriptionFromFlagOrStdinWithReader(flagValue string, input io.Reader) (string, error) {
 	if flagValue == "-" {
-		return readStdin()
+		if input == nil {
+			input = os.Stdin
+		}
+		return readStdinFrom(input)
 	}
 
 	return flagValue, nil
