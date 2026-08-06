@@ -3,9 +3,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/joa23/linear-cli/internal/format"
 	"github.com/joa23/linear-cli/internal/service"
+	"github.com/joa23/linear-cli/pkg/linear/projects"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +58,15 @@ func newProjectsListCmd() *cobra.Command {
   # Output as JSON
   linear projects list --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// An omitted flag means no status filter. Once --status is explicitly
+			// provided, validate every comma-separated entry before resolving teams,
+			// viewers, or listing projects so malformed input cannot broaden a query.
+			if cmd.Flags().Changed("status") {
+				if _, err := projects.NormalizeStatusNames(strings.Split(status, ",")); err != nil {
+					return err
+				}
+			}
+
 			deps, err := getDeps(cmd)
 			if err != nil {
 				return err

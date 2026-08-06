@@ -13,18 +13,18 @@ type IssueMinimalDTO struct {
 
 // IssueCompactDTO contains key metadata (~150 tokens)
 type IssueCompactDTO struct {
-	Identifier string   `json:"identifier"`
-	Title      string   `json:"title"`
-	State      string   `json:"state"`
-	Priority   *int     `json:"priority"`
-	Assignee   *string  `json:"assignee"`
-	Delegate   *string  `json:"delegate,omitempty"` // OAuth app delegate
-	Estimate   *float64 `json:"estimate"`
-	DueDate    *string  `json:"dueDate"`
-	CycleNumber *int    `json:"cycleNumber"`
-	ProjectName *string `json:"projectName"`
-	CreatedAt  string   `json:"createdAt"`
-	UpdatedAt  string   `json:"updatedAt"`
+	Identifier  string   `json:"identifier"`
+	Title       string   `json:"title"`
+	State       string   `json:"state"`
+	Priority    *int     `json:"priority"`
+	Assignee    *string  `json:"assignee"`
+	Delegate    *string  `json:"delegate,omitempty"` // OAuth app delegate
+	Estimate    *float64 `json:"estimate"`
+	DueDate     *string  `json:"dueDate"`
+	CycleNumber *int     `json:"cycleNumber"`
+	ProjectName *string  `json:"projectName"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
 }
 
 // issueBaseFields contains the shared fields between IssueDetailedDTO and IssueFullDTO.
@@ -93,48 +93,48 @@ type CycleCompactDTO struct {
 
 // CycleFullDTO contains complete cycle details
 type CycleFullDTO struct {
-	Number                      int      `json:"number"`
-	Name                        string   `json:"name"`
-	Status                      string   `json:"status"`
-	StartsAt                    string   `json:"startsAt"`
-	EndsAt                      string   `json:"endsAt"`
-	Progress                    float64  `json:"progress"`
-	Description                 string   `json:"description"`
-	Team                        *TeamDTO `json:"team"`
-	ScopeHistory                []int    `json:"scopeHistory"`
-	CompletedScopeHistory       []int    `json:"completedScopeHistory"`
-	InProgressScopeHistory      []int    `json:"inProgressScopeHistory"`
-	IssueCountHistory           []int    `json:"issueCountHistory"`
-	CompletedIssueCountHistory  []int    `json:"completedIssueCountHistory"`
-	CreatedAt                   string   `json:"createdAt"`
-	UpdatedAt                   string   `json:"updatedAt"`
+	Number                     int      `json:"number"`
+	Name                       string   `json:"name"`
+	Status                     string   `json:"status"`
+	StartsAt                   string   `json:"startsAt"`
+	EndsAt                     string   `json:"endsAt"`
+	Progress                   float64  `json:"progress"`
+	Description                string   `json:"description"`
+	Team                       *TeamDTO `json:"team"`
+	ScopeHistory               []int    `json:"scopeHistory"`
+	CompletedScopeHistory      []int    `json:"completedScopeHistory"`
+	InProgressScopeHistory     []int    `json:"inProgressScopeHistory"`
+	IssueCountHistory          []int    `json:"issueCountHistory"`
+	CompletedIssueCountHistory []int    `json:"completedIssueCountHistory"`
+	CreatedAt                  string   `json:"createdAt"`
+	UpdatedAt                  string   `json:"updatedAt"`
 }
 
 // --- Project DTOs ---
 
 // ProjectDTO represents a project in JSON format
 type ProjectDTO struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	State       string          `json:"state"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	State       string            `json:"state"`
 	Status      *ProjectStatusDTO `json:"status,omitempty"`
-	Content     string          `json:"content"`
-	Issues      []IssueRefDTO   `json:"issues"`
-	CreatedAt   string          `json:"createdAt"`
-	UpdatedAt   string          `json:"updatedAt"`
+	Content     string            `json:"content"`
+	Issues      []IssueRefDTO     `json:"issues"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
 }
 
 // --- Team DTOs ---
 
 // TeamDTO represents a team in JSON format
 type TeamDTO struct {
-	ID                   string          `json:"id"`
-	Key                  string          `json:"key"`
-	Name                 string          `json:"name"`
-	Description          string          `json:"description"`
-	IssueEstimationType  string          `json:"issueEstimationType"`
-	EstimateScale        *EstimateScale  `json:"estimateScale"`
+	ID                  string         `json:"id"`
+	Key                 string         `json:"key"`
+	Name                string         `json:"name"`
+	Description         string         `json:"description"`
+	IssueEstimationType string         `json:"issueEstimationType"`
+	EstimateScale       *EstimateScale `json:"estimateScale"`
 }
 
 // EstimateScale represents the estimation scale for a team
@@ -147,14 +147,14 @@ type EstimateScale struct {
 
 // UserDTO represents a user in JSON format
 type UserDTO struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	DisplayName string     `json:"displayName"`
-	Email       string     `json:"email"`
-	Active      bool       `json:"active"`
-	Admin       bool       `json:"admin"`
-	Teams       []TeamRef  `json:"teams"`
-	CreatedAt   string     `json:"createdAt"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	DisplayName string    `json:"displayName"`
+	Email       string    `json:"email"`
+	Active      bool      `json:"active"`
+	Admin       bool      `json:"admin"`
+	Teams       []TeamRef `json:"teams"`
+	CreatedAt   string    `json:"createdAt"`
 }
 
 // TeamRef is a minimal team reference
@@ -167,13 +167,13 @@ type TeamRef struct {
 
 // CommentDTO represents a comment in JSON format
 type CommentDTO struct {
-	ID        string        `json:"id"`
-	Body      string        `json:"body"`
-	User      *UserDTO      `json:"user"`
-	Issue     *IssueRefDTO  `json:"issue"`
+	ID        string         `json:"id"`
+	Body      string         `json:"body"`
+	User      *UserDTO       `json:"user"`
+	Issue     *IssueRefDTO   `json:"issue"`
 	Parent    *CommentRefDTO `json:"parent"`
-	CreatedAt string        `json:"createdAt"`
-	UpdatedAt string        `json:"updatedAt"`
+	CreatedAt string         `json:"createdAt"`
+	UpdatedAt string         `json:"updatedAt"`
 }
 
 // --- Reference DTOs (nested objects) ---
@@ -404,8 +404,8 @@ func IssueToDetailedDTO(issue *core.Issue) IssueDetailedDTO {
 		dto.Comments = make([]CommentSummaryDTO, len(issue.Comments.Nodes))
 		for i, comment := range issue.Comments.Nodes {
 			dto.Comments[i] = CommentSummaryDTO{
-				ID:        comment.ID,
-				Body:      truncate(cleanDescription(comment.Body), 200),
+				ID:   comment.ID,
+				Body: truncate(cleanDescription(comment.Body), 200),
 				User: &UserDTO{
 					ID:   comment.User.ID,
 					Name: comment.User.Name,

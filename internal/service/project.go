@@ -117,7 +117,7 @@ func (s *ProjectService) ListUserProjects(limit int) (string, error) {
 	}
 
 	// Get current user
-	viewer, err := s.client.TeamClient().GetViewer()
+	viewer, err := s.client.GetViewer()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
@@ -137,7 +137,7 @@ func (s *ProjectService) ListUserProjectsWithOutput(limit int, verbosity format.
 	}
 
 	// Get current user
-	viewer, err := s.client.TeamClient().GetViewer()
+	viewer, err := s.client.GetViewer()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
@@ -155,13 +155,13 @@ func (s *ProjectService) ListByTeamWithStatusOutput(teamID string, limit int, st
 	if limit <= 0 {
 		limit = 50
 	}
-	resolvedTeamID, err := s.client.ResolveTeamIdentifier(teamID)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve team '%s': %w", teamID, err)
-	}
 	statusIDs, err := s.resolveStatusIDs(status)
 	if err != nil {
 		return "", err
+	}
+	resolvedTeamID, err := s.client.ResolveTeamIdentifier(teamID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve team '%s': %w", teamID, err)
 	}
 	projects, err := s.client.ListByTeamWithStatus(resolvedTeamID, limit, statusIDs)
 	if err != nil {
@@ -175,13 +175,13 @@ func (s *ProjectService) ListUserProjectsWithStatusOutput(limit int, status stri
 	if limit <= 0 {
 		limit = 50
 	}
-	viewer, err := s.client.TeamClient().GetViewer()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current user: %w", err)
-	}
 	statusIDs, err := s.resolveStatusIDs(status)
 	if err != nil {
 		return "", err
+	}
+	viewer, err := s.client.GetViewer()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current user: %w", err)
 	}
 	projects, err := s.client.ListUserProjectsWithStatus(viewer.ID, limit, statusIDs)
 	if err != nil {
@@ -316,7 +316,7 @@ func (s *ProjectService) Update(projectID string, input *UpdateProjectInput) (st
 	}
 
 	// Update project
-	project, err := s.client.ProjectClient().UpdateProject(projectID, linearInput)
+	project, err := s.client.UpdateProject(projectID, linearInput)
 	if err != nil {
 		return "", fmt.Errorf("failed to update project: %w", err)
 	}
@@ -328,9 +328,5 @@ func (s *ProjectService) resolveStatusIDs(raw string) ([]string, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	names, err := projects.NormalizeStatusNames(strings.Split(raw, ","))
-	if err != nil {
-		return nil, err
-	}
-	return s.client.ResolveProjectStatusNames(names)
+	return s.client.ResolveProjectStatusNames(strings.Split(raw, ","))
 }

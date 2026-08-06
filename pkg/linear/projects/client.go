@@ -21,11 +21,6 @@ func NewClient(base *core.BaseClient) *Client {
 	return &Client{base: base}
 }
 
-// StatusFilter contains resolved project status IDs used by server-side list filters.
-type StatusFilter struct {
-	IDs []string
-}
-
 // NormalizeStatusNames trims, validates, and de-duplicates project status names.
 func NormalizeStatusNames(names []string) ([]string, error) {
 	normalized := make([]string, 0, len(names))
@@ -452,104 +447,10 @@ func (pc *Client) ListByTeam(teamID string, limit int) ([]core.Project, error) {
 	return response.Team.Projects.Nodes, nil
 }
 
-// ListUserProjects retrieves projects that have issues assigned to a specific user
-// Why: Users often want to see only projects they're actively working on.
-// This method filters projects based on issue assignments.
+// ListUserProjects retrieves projects that have issues assigned to a specific user.
+// The visible limit is applied after the assignee predicate has been verified.
 func (pc *Client) ListUserProjects(userID string, limit int) ([]core.Project, error) {
-	// Validate input
-	// Why: User ID is required for filtering. Without it, we can't
-	// determine which projects to return.
-	if userID == "" {
-		return nil, &core.ValidationError{Field: "userID", Message: "userID cannot be empty"}
-	}
-
-	if limit <= 0 {
-		limit = 50
-	}
-
-	const query = `
-		query ListUserProjects($filter: ProjectFilter, $first: Int) {
-			projects(filter: $filter, first: $first) {
-				nodes {
-					id
-					name
-					description
-					content
-					state
-					status {
-						id
-						name
-						type
-					}
-					createdAt
-					updatedAt
-					issues {
-						nodes {
-							id
-							assignee {
-								id
-							}
-						}
-					}
-				}
-			}
-		}
-	`
-
-	// Filter for projects with issues assigned to the user
-	// Why: Linear doesn't have direct user-project relationships.
-	// We filter through issues to find projects the user is working on.
-	filter := map[string]interface{}{
-		"issues": map[string]interface{}{
-			"assignee": map[string]interface{}{
-				"id": map[string]interface{}{
-					"eq": userID,
-				},
-			},
-		},
-	}
-
-	variables := map[string]interface{}{
-		"filter": filter,
-		"first":  limit,
-	}
-
-	var response struct {
-		Projects struct {
-			Nodes []core.Project `json:"nodes"`
-		} `json:"projects"`
-	}
-
-	err := pc.base.ExecuteRequest(query, variables, &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list user projects: %w", err)
-	}
-
-	// Filter projects to only include those with issues assigned to the user
-	// Why: The API filter may not work as expected in all cases, and we need
-	// to ensure we only return projects where the user actually has assigned issues.
-	var filteredProjects []core.Project
-	for _, project := range response.Projects.Nodes {
-		if project.Issues != nil && len(project.Issues.Nodes) > 0 {
-			filteredProjects = append(filteredProjects, project)
-		}
-	}
-
-	// Extract metadata from content (or fallback to description)
-	for i := range filteredProjects {
-		if filteredProjects[i].Content != "" {
-			metadata, cleanContent := metadata.ExtractMetadataFromDescription(filteredProjects[i].Content)
-			filteredProjects[i].Metadata = metadata
-			filteredProjects[i].Content = cleanContent
-		} else if filteredProjects[i].Description != "" {
-			// Fallback to description for backwards compatibility
-			metadata, cleanDesc := metadata.ExtractMetadataFromDescription(filteredProjects[i].Description)
-			filteredProjects[i].Metadata = metadata
-			filteredProjects[i].Description = cleanDesc
-		}
-	}
-
-	return filteredProjects, nil
+	return pc.listUserProjects(userID, limit, nil)
 }
 
 // ListAllProjectsWithStatus retrieves projects matching any of the supplied status IDs.
@@ -636,18 +537,20 @@ func (pc *Client) ListByTeamWithStatus(teamID string, limit int, statusIDs []str
 
 // ListUserProjectsWithStatus retrieves user projects with both predicates applied server-side.
 func (pc *Client) ListUserProjectsWithStatus(userID string, limit int, statusIDs []string) ([]core.Project, error) {
-	if len(statusIDs) == 0 {
-		return pc.ListUserProjects(userID, limit)
-	}
+	return pc.listUserProjects(userID, limit, statusIDs)
+}
+
+func (pc *Client) listUserProjects(userID string, limit int, statusIDs []string) ([]core.Project, error) {
 	if userID == "" {
 		return nil, &core.ValidationError{Field: "userID", Message: "userID cannot be empty"}
 	}
 	if limit <= 0 {
 		limit = 50
 	}
+
 	const query = `
-		query ListUserProjects($filter: ProjectFilter, $first: Int) {
-			projects(filter: $filter, first: $first) {
+		query ListUserProjects($filter: ProjectFilter, $issueFilter: IssueFilter, $first: Int, $after: String) {
+			projects(filter: $filter, first: $first, after: $after) {
 				nodes {
 					id
 					name
@@ -657,38 +560,63 @@ func (pc *Client) ListUserProjectsWithStatus(userID string, limit int, statusIDs
 					status { id name type }
 					createdAt
 					updatedAt
-					issues { nodes { id assignee { id } } }
+					issues(filter: $issueFilter, first: 1) { nodes { id assignee { id } } }
 				}
+				pageInfo { hasNextPage endCursor }
 			}
 		}
 	`
+
+	issueFilter := map[string]interface{}{"assignee": map[string]interface{}{"id": map[string]interface{}{"eq": userID}}}
 	filter := map[string]interface{}{
-		"issues": map[string]interface{}{"assignee": map[string]interface{}{"id": map[string]interface{}{"eq": userID}}},
-		"status": map[string]interface{}{"id": map[string]interface{}{"in": statusIDs}},
+		"issues": map[string]interface{}{"some": issueFilter},
 	}
-	var response struct {
-		Projects struct {
-			Nodes []core.Project `json:"nodes"`
-		} `json:"projects"`
+	if len(statusIDs) > 0 {
+		filter["status"] = map[string]interface{}{"id": map[string]interface{}{"in": statusIDs}}
 	}
-	// Request a larger candidate page because the local assignee safeguard is
-	// applied after decoding; the user-visible limit is applied below.
-	candidateLimit := limit
-	if candidateLimit < 250 {
-		candidateLimit = 250
-	}
-	variables := map[string]interface{}{"filter": filter, "first": candidateLimit}
-	if err := pc.base.ExecuteRequest(query, variables, &response); err != nil {
-		return nil, fmt.Errorf("failed to list user projects: %w", err)
-	}
-	filtered := make([]core.Project, 0, len(response.Projects.Nodes))
-	for _, project := range response.Projects.Nodes {
-		if project.Issues != nil && len(project.Issues.Nodes) > 0 {
-			filtered = append(filtered, project)
+
+	const pageSize = 250
+	filtered := make([]core.Project, 0, limit)
+	seenCursors := map[string]struct{}{}
+	var after string
+	for {
+		variables := map[string]interface{}{"filter": filter, "issueFilter": issueFilter, "first": pageSize}
+		if after != "" {
+			variables["after"] = after
 		}
-	}
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
+		var response struct {
+			Projects struct {
+				Nodes    []core.Project `json:"nodes"`
+				PageInfo struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
+			} `json:"projects"`
+		}
+		if err := pc.base.ExecuteRequest(query, variables, &response); err != nil {
+			return nil, fmt.Errorf("failed to list user projects: %w", err)
+		}
+		for _, project := range response.Projects.Nodes {
+			if project.Issues != nil && len(project.Issues.Nodes) > 0 {
+				filtered = append(filtered, project)
+				if len(filtered) == limit {
+					pc.extractMetadata(filtered)
+					return filtered, nil
+				}
+			}
+		}
+		if !response.Projects.PageInfo.HasNextPage {
+			break
+		}
+		next := response.Projects.PageInfo.EndCursor
+		if next == "" {
+			return nil, fmt.Errorf("failed to list user projects: pagination returned an empty cursor")
+		}
+		if _, ok := seenCursors[next]; ok {
+			return nil, fmt.Errorf("failed to list user projects: pagination returned a repeated cursor")
+		}
+		seenCursors[next] = struct{}{}
+		after = next
 	}
 	pc.extractMetadata(filtered)
 	return filtered, nil
@@ -708,6 +636,11 @@ func (pc *Client) extractMetadata(projects []core.Project) {
 	}
 }
 
+// UpdateProjectInput contains the legacy project write fields used by this client.
+// The checked-in Linear schema exposes statusId, not state, on ProjectUpdateInput.
+// State is intentionally retained for compatibility with the existing --state
+// surface; this ticket does not change that write semantics or infer a named
+// status because multiple named statuses may share one status type.
 type UpdateProjectInput struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
@@ -812,7 +745,11 @@ func (pc *Client) UpdateProjectState(projectID, state string) error {
 }
 
 // UpdateProjectStateWithResult updates a project using the legacy state input
-// and returns the response including its named status.
+// and returns the response including its named status. The current checked-in
+// schema declares statusId rather than state for ProjectUpdateInput; the legacy
+// state write is deliberately preserved and may be rejected by newer APIs.
+// A type such as started cannot be converted safely to statusId because several
+// named statuses can share the same type.
 func (pc *Client) UpdateProjectStateWithResult(projectID, state string) (*core.Project, error) {
 	if projectID == "" {
 		return nil, &core.ValidationError{Field: "projectID", Message: "projectID cannot be empty"}

@@ -486,10 +486,8 @@ func (c *Client) ResolveProjectStatusNames(names []string) ([]string, error) {
 	return c.Projects.ResolveProjectStatusNames(names)
 }
 
-func (c *Client) UpdateProject(projectID string, input interface{}) (*core.Project, error) {
-	// Convert interface{} to the actual type expected by Projects client
-	// This is a temporary solution for Phase 1 to maintain flexibility
-	return c.Projects.UpdateProject(projectID, input.(projects.UpdateProjectInput))
+func (c *Client) UpdateProject(projectID string, input projects.UpdateProjectInput) (*core.Project, error) {
+	return c.Projects.UpdateProject(projectID, input)
 }
 
 func (c *Client) UpdateProjectState(projectID, state string) error {
