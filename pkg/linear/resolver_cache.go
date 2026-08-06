@@ -43,7 +43,6 @@ type resolverCache struct {
 
 	// Label resolution caches are keyed by normalized team and label values.
 	labelByName map[string]*cacheEntry      // teamID:normalized-name → labelID
-	labelByID   map[string]*cacheEntry      // teamID:normalized-id → labelID
 	labelData   map[string]*labelCacheEntry // teamID:normalized-id → label metadata
 
 	// Project resolution cache
@@ -62,7 +61,6 @@ func newResolverCache(ttl time.Duration) *resolverCache {
 		teamByKey:         make(map[string]*cacheEntry),
 		issueByIdentifier: make(map[string]*cacheEntry),
 		labelByName:       make(map[string]*cacheEntry),
-		labelByID:         make(map[string]*cacheEntry),
 		labelData:         make(map[string]*labelCacheEntry),
 		projectByName:     make(map[string]*cacheEntry),
 		ttl:               ttl,
@@ -222,19 +220,21 @@ func (rc *resolverCache) getLabelByID(teamID, labelID string) (core.Label, bool)
 	return cloneLabel(entry.label), true
 }
 
-func (rc *resolverCache) setLabelByName(teamID, labelName, labelID string) {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-
-	rc.labelByName[labelKey(teamID, labelName)] = &cacheEntry{
-		value:     labelID,
-		expiresAt: time.Now().Add(rc.ttl),
-	}
-}
-
 func (rc *resolverCache) setLabels(teamID string, labels []core.Label) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+
+	teamPrefix := strings.ToLower(strings.TrimSpace(teamID)) + ":"
+	for key := range rc.labelByName {
+		if strings.HasPrefix(key, teamPrefix) {
+			delete(rc.labelByName, key)
+		}
+	}
+	for key := range rc.labelData {
+		if strings.HasPrefix(key, teamPrefix) {
+			delete(rc.labelData, key)
+		}
+	}
 
 	expiresAt := time.Now().Add(rc.ttl)
 	nameCounts := make(map[string]int, len(labels))
@@ -244,7 +244,6 @@ func (rc *resolverCache) setLabels(teamID string, labels []core.Label) {
 	for _, label := range labels {
 		copy := cloneLabel(label)
 		idKey := labelKey(teamID, label.ID)
-		rc.labelByID[idKey] = &cacheEntry{value: label.ID, expiresAt: expiresAt}
 		rc.labelData[idKey] = &labelCacheEntry{label: copy, expiresAt: expiresAt}
 		if nameCounts[labelKey(teamID, label.Name)] == 1 {
 			rc.labelByName[labelKey(teamID, label.Name)] = &cacheEntry{value: label.ID, expiresAt: expiresAt}
@@ -323,11 +322,6 @@ func (rc *resolverCache) cleanup() {
 			delete(rc.labelByName, key)
 		}
 	}
-	for key, entry := range rc.labelByID {
-		if entry.expiresAt.Before(now) {
-			delete(rc.labelByID, key)
-		}
-	}
 	for key, entry := range rc.labelData {
 		if entry.expiresAt.Before(now) {
 			delete(rc.labelData, key)
@@ -366,7 +360,6 @@ func (rc *resolverCache) clear() {
 	rc.teamByKey = make(map[string]*cacheEntry)
 	rc.issueByIdentifier = make(map[string]*cacheEntry)
 	rc.labelByName = make(map[string]*cacheEntry)
-	rc.labelByID = make(map[string]*cacheEntry)
 	rc.labelData = make(map[string]*labelCacheEntry)
 	rc.projectByName = make(map[string]*cacheEntry)
 }

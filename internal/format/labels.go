@@ -120,6 +120,7 @@ func (f *Formatter) LabelList(labels []core.Label, includeIDs bool) string {
 }
 
 // Labels renders the compact label-list text format.
+// Deprecated compatibility entry point; new callers should use LabelList.
 func (f *Formatter) Labels(labels []core.Label) string {
 	return FormatLabels(labels, LabelListOptions{})
 }

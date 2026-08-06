@@ -542,9 +542,10 @@ LABEL MODES:
 
 			// Check if any updates provided (description="-" means stdin)
 			labelsChanged := cmd.Flags().Changed("labels")
+			addLabelsChanged := cmd.Flags().Changed("add-labels")
+			removeLabelsChanged := cmd.Flags().Changed("remove-labels")
 			hasFlags := title != "" || description != "" || state != "" ||
-				priority != "" || estimate != "" || labelsChanged ||
-				addLabels != "" || removeLabels != "" ||
+				priority != "" || estimate != "" || labelsChanged || addLabelsChanged || removeLabelsChanged ||
 				cycle != "" || project != "" || assignee != "" ||
 				dueDate != "" || parent != "" || dependsOn != "" || blockedBy != "" ||
 				len(attachFiles) > 0
@@ -554,8 +555,8 @@ LABEL MODES:
 			}
 
 			// Validate mutual exclusivity: --labels cannot be used with --add-labels or --remove-labels
-			if labelsChanged && (addLabels != "" || removeLabels != "") {
-				return fmt.Errorf("--labels cannot be combined with --add-labels or --remove-labels. Use --labels to replace all labels, or --add-labels/--remove-labels for incremental changes")
+			if err := validateIssueLabelModeFlags(labelsChanged, addLabelsChanged, removeLabelsChanged); err != nil {
+				return err
 			}
 
 			// Get description from flag or stdin
@@ -668,6 +669,13 @@ LABEL MODES:
 	cmd.Flags().StringVarP(&team, "team", "t", "", TeamFlagDescription)
 
 	return cmd
+}
+
+func validateIssueLabelModeFlags(labelsChanged, addLabelsChanged, removeLabelsChanged bool) error {
+	if labelsChanged && (addLabelsChanged || removeLabelsChanged) {
+		return fmt.Errorf("--labels cannot be combined with --add-labels or --remove-labels. Use --labels to replace all labels, or --add-labels/--remove-labels for incremental changes")
+	}
+	return nil
 }
 
 func newIssuesCommentCmd() *cobra.Command {

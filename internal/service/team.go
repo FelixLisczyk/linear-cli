@@ -107,16 +107,16 @@ func (s *TeamService) GetLabelsWithOutput(identifier string, verbosity format.Ve
 		return "", fmt.Errorf("failed to list labels: %w", err)
 	}
 
-	if len(labels) == 0 {
-		return "No labels found.", nil
-	}
-
 	if outputType.IsJSON() {
 		data, err := json.MarshalIndent(labels, "", "  ")
 		if err != nil {
 			return "", fmt.Errorf("failed to marshal labels: %w", err)
 		}
 		return string(data), nil
+	}
+
+	if len(labels) == 0 {
+		return "No labels found.", nil
 	}
 
 	return s.formatter.LabelList(labels, false), nil

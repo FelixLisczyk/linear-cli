@@ -30,6 +30,18 @@ func TestValidateLabelSelectionReportsDeterministicSiblingConflicts(t *testing.T
 	}
 }
 
+func TestValidateLabelSelectionRejectsIncompleteMetadata(t *testing.T) {
+	tests := []core.Label{
+		{ID: "", Name: "Missing ID"},
+		{ID: "child", Name: "Missing parent ID", Parent: &core.LabelRef{Name: "Type"}},
+	}
+	for _, label := range tests {
+		if err := validateLabelSelection([]core.Label{label}); err == nil || !strings.Contains(err.Error(), "metadata is incomplete") {
+			t.Fatalf("label %#v error = %v, want incomplete metadata error", label, err)
+		}
+	}
+}
+
 func TestValidateLabelSelectionAllowsStandaloneAndDistinctGroups(t *testing.T) {
 	labels := []core.Label{
 		{ID: "a", Name: "Alpha", Parent: &core.LabelRef{ID: "group-1", Name: "One"}},

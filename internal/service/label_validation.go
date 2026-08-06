@@ -41,12 +41,18 @@ func validateLabelSelection(labels []core.Label) error {
 	groups := make(map[string]LabelConflictGroup)
 	seen := make(map[string]struct{}, len(labels))
 	for _, label := range labels {
+		if label.ID == "" {
+			return fmt.Errorf("label metadata is incomplete for %q: label ID is missing", label.Name)
+		}
 		if _, ok := seen[label.ID]; ok {
 			continue
 		}
 		seen[label.ID] = struct{}{}
-		if label.Parent == nil || label.Parent.ID == "" {
+		if label.Parent == nil {
 			continue
+		}
+		if label.Parent.ID == "" {
+			return fmt.Errorf("label metadata is incomplete for %q: parent ID is missing", label.Name)
 		}
 		group := groups[label.Parent.ID]
 		group.Parent = *label.Parent

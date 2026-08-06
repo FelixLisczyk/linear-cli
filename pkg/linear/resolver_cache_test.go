@@ -29,6 +29,20 @@ func TestResolverCacheStoresNormalizedLabelMetadata(t *testing.T) {
 	}
 }
 
+func TestResolverCacheRefreshRemovesStaleLabelNames(t *testing.T) {
+	cache := newResolverCache(time.Hour)
+	defer cache.clear()
+
+	cache.setLabels("team", []core.Label{{ID: "one", Name: "Only"}})
+	cache.setLabels("team", []core.Label{{ID: "two", Name: "Only"}, {ID: "three", Name: "only"}})
+	if _, ok := cache.getLabelByName("team", "Only"); ok {
+		t.Fatal("stale unique name should not survive an ambiguous refresh")
+	}
+	if _, ok := cache.getLabelByID("team", "one"); ok {
+		t.Fatal("removed label metadata should not survive a refresh")
+	}
+}
+
 func TestResolverCacheDoesNotCacheAmbiguousLabelNames(t *testing.T) {
 	cache := newResolverCache(time.Hour)
 	defer cache.clear()

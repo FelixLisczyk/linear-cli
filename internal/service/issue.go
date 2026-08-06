@@ -715,7 +715,17 @@ func (s *IssueService) Update(identifier string, input *UpdateIssueInput) (strin
 		}
 
 		if input.TeamID != nil && *input.TeamID != "" && (len(input.AddLabelIDs) > 0 || len(input.RemoveLabelIDs) > 0) {
-			return "", fmt.Errorf("cannot add or remove labels while changing an issue's team; use --labels to replace all labels")
+			teamKey, _, parseErr := identifiers.ParseIssueIdentifier(issue.Identifier)
+			if parseErr != nil {
+				return "", fmt.Errorf("failed to update issue: cannot determine current team: %w", parseErr)
+			}
+			currentTeamID, resolveErr := s.client.ResolveTeamIdentifier(teamKey)
+			if resolveErr != nil {
+				return "", fmt.Errorf("failed to update issue: cannot determine current team: %w", resolveErr)
+			}
+			if currentTeamID != teamIDForLabels {
+				return "", fmt.Errorf("failed to update issue: cannot add or remove labels while changing an issue's team; use --labels to replace all labels")
+			}
 		}
 
 		if input.LabelIDs != nil {
@@ -740,14 +750,20 @@ func (s *IssueService) Update(identifier string, input *UpdateIssueInput) (strin
 			for _, labelName := range input.AddLabelIDs {
 				label, err := s.client.ResolveLabelMetadata(labelName, teamIDForLabels)
 				if err != nil {
-					return "", fmt.Errorf("failed to resolve label '%s': %w", labelName, err)
+					return "", fmt.Errorf("failed to update issue: failed to resolve label '%s': %w", labelName, err)
+				}
+				if label == nil {
+					return "", fmt.Errorf("failed to update issue: failed to resolve label '%s': resolver returned no label", labelName)
 				}
 				labelSet[label.ID] = *label
 			}
 			for _, labelName := range input.RemoveLabelIDs {
 				label, err := s.client.ResolveLabelMetadata(labelName, teamIDForLabels)
 				if err != nil {
-					return "", fmt.Errorf("failed to resolve label '%s': %w", labelName, err)
+					return "", fmt.Errorf("failed to update issue: failed to resolve label '%s': %w", labelName, err)
+				}
+				if label == nil {
+					return "", fmt.Errorf("failed to update issue: failed to resolve label '%s': resolver returned no label", labelName)
 				}
 				delete(labelSet, label.ID)
 			}
@@ -915,15 +931,10 @@ func (s *IssueService) currentLabelMetadata(issue *core.Issue, teamID string, hy
 	}
 	labels := make([]core.Label, 0, len(issue.Labels.Nodes))
 	for _, label := range issue.Labels.Nodes {
-		if label.Parent != nil && label.Parent.ID != "" || !hydrate {
-			labels = append(labels, label)
-			continue
-		}
-		resolved, err := s.client.ResolveLabelMetadata(label.ID, teamID)
-		if err != nil {
-			return nil, fmt.Errorf("could not resolve existing label '%s': %w", label.Name, err)
-		}
-		labels = append(labels, *resolved)
+		// The issue query requests parent metadata. A nil parent is authoritative
+		// for standalone labels, while a non-nil parent with an empty ID is
+		// rejected by validateLabelSelection as incomplete metadata.
+		labels = append(labels, label)
 	}
 	return sortLabels(labels), nil
 }

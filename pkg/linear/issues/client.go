@@ -154,7 +154,7 @@ linear_create_issue("Task title", "Description", teams[0].id)`)
 	}
 
 	if !response.IssueCreate.Success {
-		return nil, fmt.Errorf("issue creation was not successful")
+		return nil, fmt.Errorf("failed to create issue: mutation was not successful")
 	}
 
 	// Extract metadata from description if present
@@ -1759,7 +1759,7 @@ func (ic *Client) UpdateIssue(issueID string, input core.UpdateIssueInput) (*cor
 	}
 
 	if !response.IssueUpdate.Success {
-		return nil, fmt.Errorf("issue update was not successful")
+		return nil, fmt.Errorf("failed to update issue: mutation was not successful")
 	}
 
 	// Extract metadata from description if present
