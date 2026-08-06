@@ -91,16 +91,7 @@ func (s *TeamService) GetLabels(identifier string) (string, error) {
 		return "No labels found.", nil
 	}
 
-	// Format labels as simple list
-	output := fmt.Sprintf("LABELS (%d)\n────────────────────────────────────────\n", len(labels))
-	for _, label := range labels {
-		output += fmt.Sprintf("  %s [%s]\n", label.Name, label.Color)
-		if label.Description != "" {
-			output += fmt.Sprintf("    %s\n", label.Description)
-		}
-	}
-
-	return output, nil
+	return s.formatter.LabelList(labels, false), nil
 }
 
 // GetLabelsWithOutput returns labels for a team with new renderer architecture
@@ -128,16 +119,7 @@ func (s *TeamService) GetLabelsWithOutput(identifier string, verbosity format.Ve
 		return string(data), nil
 	}
 
-	// Format labels as simple list
-	output := fmt.Sprintf("LABELS (%d)\n────────────────────────────────────────\n", len(labels))
-	for _, label := range labels {
-		output += fmt.Sprintf("  %s [%s]\n", label.Name, label.Color)
-		if label.Description != "" {
-			output += fmt.Sprintf("    %s\n", label.Description)
-		}
-	}
-
-	return output, nil
+	return s.formatter.LabelList(labels, false), nil
 }
 
 // GetWorkflowStates returns workflow states for a team (legacy method)

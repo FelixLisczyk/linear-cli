@@ -49,16 +49,7 @@ func (s *LabelService) List(teamID string, verbosity format.Verbosity, outputTyp
 		return string(data), nil
 	}
 
-	// Text output
-	output := fmt.Sprintf("LABELS (%d)\n────────────────────────────────────────\n", len(labels))
-	for _, label := range labels {
-		output += fmt.Sprintf("  %-30s %s  %s\n", label.Name, label.Color, label.ID)
-		if label.Description != "" {
-			output += fmt.Sprintf("    %s\n", label.Description)
-		}
-	}
-
-	return output, nil
+	return s.formatter.LabelList(labels, true), nil
 }
 
 // errLabelMutationRequiresUser is returned when label mutations are attempted in agent mode
