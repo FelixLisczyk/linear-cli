@@ -118,6 +118,7 @@ type ProjectDTO struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	State       string          `json:"state"`
+	Status      *ProjectStatusDTO `json:"status,omitempty"`
 	Content     string          `json:"content"`
 	Issues      []IssueRefDTO   `json:"issues"`
 	CreatedAt   string          `json:"createdAt"`
@@ -181,6 +182,13 @@ type CommentDTO struct {
 type StateDTO struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// ProjectStatusDTO represents a named project status.
+type ProjectStatusDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 // LabelDTO represents an issue label
@@ -471,14 +479,25 @@ func CycleToFullDTO(cycle *core.Cycle) CycleFullDTO {
 
 // ProjectToDTO converts a project to DTO
 func ProjectToDTO(project *core.Project) ProjectDTO {
+	state := project.State
+	if project.Status != nil {
+		state = project.Status.Type
+	}
 	dto := ProjectDTO{
 		ID:          project.ID,
 		Name:        project.Name,
 		Description: project.Description,
-		State:       project.State,
+		State:       state,
 		Content:     project.Content,
 		CreatedAt:   project.CreatedAt,
 		UpdatedAt:   project.UpdatedAt,
+	}
+	if project.Status != nil {
+		dto.Status = &ProjectStatusDTO{
+			ID:   project.Status.ID,
+			Name: project.Status.Name,
+			Type: project.Status.Type,
+		}
 	}
 
 	// Convert issues

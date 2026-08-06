@@ -31,6 +31,7 @@ func newProjectsListCmd() *cobra.Command {
 	var mine bool
 	var teamID string
 	var limit int
+	var status string
 	var formatStr, outputType string
 
 	cmd := &cobra.Command{
@@ -48,6 +49,9 @@ func newProjectsListCmd() *cobra.Command {
 
   # List with custom limit
   linear projects list --limit 50
+
+  # Filter by named project status (comma-separated OR filter)
+  linear projects list --status "In Progress,On Hold"
 
   # Output as JSON
   linear projects list --output json`,
@@ -76,7 +80,7 @@ func newProjectsListCmd() *cobra.Command {
 			var result string
 			if mine {
 				// --mine overrides team requirement
-				result, err = deps.Projects.ListUserProjectsWithOutput(limit, verbosity, output)
+				result, err = deps.Projects.ListUserProjectsWithStatusOutput(limit, status, verbosity, output)
 			} else {
 				// Get team from flag or config
 				if teamID == "" {
@@ -86,7 +90,7 @@ func newProjectsListCmd() *cobra.Command {
 					return errors.New(ErrTeamRequired)
 				}
 
-				result, err = deps.Projects.ListByTeamWithOutput(teamID, limit, verbosity, output)
+				result, err = deps.Projects.ListByTeamWithStatusOutput(teamID, limit, status, verbosity, output)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to list projects: %w", err)
@@ -100,6 +104,7 @@ func newProjectsListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&mine, "mine", false, "Only show projects you're involved in (ignores team)")
 	cmd.Flags().StringVarP(&teamID, "team", "t", "", TeamFlagDescription)
 	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Number of projects to return")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by project status name(s), comma-separated")
 	cmd.Flags().StringVarP(&formatStr, "format", "f", "compact", "Verbosity: minimal|compact|detailed|full")
 	cmd.Flags().StringVarP(&outputType, "output", "o", "text", "Output: text|json")
 

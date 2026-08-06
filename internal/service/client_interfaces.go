@@ -65,6 +65,13 @@ type ProjectClientOperations interface {
 	// Smart resolver-aware methods (kept in Phase 2)
 	CreateProject(name, description, teamKeyOrName string) (*core.Project, error)
 
+	// Project reads and named-status filtering
+	GetProject(projectID string) (*core.Project, error)
+	ListAllProjectsWithStatus(limit int, statusIDs []string) ([]core.Project, error)
+	ListByTeamWithStatus(teamID string, limit int, statusIDs []string) ([]core.Project, error)
+	ListUserProjectsWithStatus(userID string, limit int, statusIDs []string) ([]core.Project, error)
+	ResolveProjectStatusNames(names []string) ([]string, error)
+
 	// Resolver operations
 	ResolveTeamIdentifier(keyOrName string) (string, error)
 	ResolveUserIdentifier(nameOrEmail string) (*linear.ResolvedUser, error)

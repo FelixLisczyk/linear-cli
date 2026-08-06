@@ -21,6 +21,106 @@ func NewClient(base *core.BaseClient) *Client {
 	return &Client{base: base}
 }
 
+// StatusFilter contains resolved project status IDs used by server-side list filters.
+type StatusFilter struct {
+	IDs []string
+}
+
+// NormalizeStatusNames trims, validates, and de-duplicates project status names.
+func NormalizeStatusNames(names []string) ([]string, error) {
+	normalized := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("project status filter contains an empty value")
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, name)
+	}
+	return normalized, nil
+}
+
+// ListProjectStatuses returns active workspace project statuses.
+func (pc *Client) ListProjectStatuses() ([]core.ProjectStatus, error) {
+	const query = `
+		query ListProjectStatuses {
+			organization {
+				projectStatuses {
+					id
+					name
+					type
+					archivedAt
+				}
+			}
+		}
+	`
+	var response struct {
+		Organization struct {
+			ProjectStatuses []core.ProjectStatus `json:"projectStatuses"`
+		} `json:"organization"`
+	}
+	if err := pc.base.ExecuteRequest(query, nil, &response); err != nil {
+		return nil, fmt.Errorf("failed to list project statuses: %w", err)
+	}
+	statuses := make([]core.ProjectStatus, 0, len(response.Organization.ProjectStatuses))
+	for _, status := range response.Organization.ProjectStatuses {
+		if status.ArchivedAt == nil {
+			statuses = append(statuses, status)
+		}
+	}
+	return statuses, nil
+}
+
+// ResolveProjectStatusNames resolves normalized names to active status IDs.
+func (pc *Client) ResolveProjectStatusNames(names []string) ([]string, error) {
+	normalized, err := NormalizeStatusNames(names)
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+	statuses, err := pc.ListProjectStatuses()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(normalized))
+	for _, name := range normalized {
+		key := strings.ToLower(name)
+		var match *core.ProjectStatus
+		for i := range statuses {
+			if strings.ToLower(strings.TrimSpace(statuses[i].Name)) != key {
+				continue
+			}
+			if match != nil {
+				return nil, fmt.Errorf("project status '%s' is ambiguous", name)
+			}
+			match = &statuses[i]
+		}
+		if match == nil {
+			return nil, fmt.Errorf("project status '%s' not found", name)
+		}
+		ids = append(ids, match.ID)
+	}
+	return ids, nil
+}
+
+func statusFilterMap(statusIDs []string) map[string]interface{} {
+	if len(statusIDs) == 0 {
+		return nil
+	}
+	return map[string]interface{}{
+		"status": map[string]interface{}{
+			"id": map[string]interface{}{"in": statusIDs},
+		},
+	}
+}
+
 // CreateProject creates a new project in Linear
 // Why: Projects are containers for organizing related issues. This method
 // enables project creation with proper team assignment.
@@ -34,7 +134,7 @@ func (pc *Client) CreateProject(name, description, teamID string) (*core.Project
 	if teamID == "" {
 		return nil, &core.ValidationError{Field: "teamID", Message: "teamID cannot be empty"}
 	}
-	
+
 	const mutation = `
 		mutation CreateProject($input: ProjectCreateInput!) {
 			projectCreate(input: $input) {
@@ -44,6 +144,11 @@ func (pc *Client) CreateProject(name, description, teamID string) (*core.Project
 					name
 					description
 					state
+					status {
+						id
+						name
+						type
+					}
 					createdAt
 					updatedAt
 					issues {
@@ -57,7 +162,7 @@ func (pc *Client) CreateProject(name, description, teamID string) (*core.Project
 			}
 		}
 	`
-	
+
 	// Build the input object
 	// Why: Linear's API expects specific fields. We conditionally include
 	// description only if provided to avoid sending empty strings.
@@ -69,27 +174,27 @@ func (pc *Client) CreateProject(name, description, teamID string) (*core.Project
 	if description != "" {
 		input["description"] = description
 	}
-	
+
 	variables := map[string]interface{}{
 		"input": input,
 	}
-	
+
 	var response struct {
 		ProjectCreate struct {
-			Success bool    `json:"success"`
+			Success bool         `json:"success"`
 			Project core.Project `json:"project"`
 		} `json:"projectCreate"`
 	}
-	
+
 	err := pc.base.ExecuteRequest(mutation, variables, &response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create project: %w", err)
 	}
-	
+
 	if !response.ProjectCreate.Success {
 		return nil, fmt.Errorf("project creation was not successful")
 	}
-	
+
 	// Extract metadata from description if present
 	// Why: Projects can have metadata stored in descriptions. We extract
 	// it immediately after creation for consistent access.
@@ -98,7 +203,7 @@ func (pc *Client) CreateProject(name, description, teamID string) (*core.Project
 		response.ProjectCreate.Project.Metadata = metadata
 		response.ProjectCreate.Project.Description = cleanDesc
 	}
-	
+
 	return &response.ProjectCreate.Project, nil
 }
 
@@ -112,7 +217,7 @@ func (pc *Client) GetProject(projectID string) (*core.Project, error) {
 	if projectID == "" {
 		return nil, &core.ValidationError{Field: "projectID", Message: "projectID cannot be empty"}
 	}
-	
+
 	const query = `
 		query GetProject($id: String!) {
 			project(id: $id) {
@@ -121,6 +226,11 @@ func (pc *Client) GetProject(projectID string) (*core.Project, error) {
 				description
 				content
 				state
+				status {
+					id
+					name
+					type
+				}
 				createdAt
 				updatedAt
 				issues {
@@ -142,15 +252,15 @@ func (pc *Client) GetProject(projectID string) (*core.Project, error) {
 			}
 		}
 	`
-	
+
 	variables := map[string]interface{}{
 		"id": projectID,
 	}
-	
+
 	var response struct {
 		Project core.Project `json:"project"`
 	}
-	
+
 	err := pc.base.ExecuteRequest(query, variables, &response)
 	if err != nil {
 		// Check if this is a "not found" error and provide helpful guidance
@@ -216,7 +326,7 @@ func (pc *Client) ListAllProjects(limit int) ([]core.Project, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	
+
 	const query = `
 		query ListProjects($first: Int) {
 			projects(first: $first) {
@@ -226,6 +336,11 @@ func (pc *Client) ListAllProjects(limit int) ([]core.Project, error) {
 					description
 					content
 					state
+					status {
+						id
+						name
+						type
+					}
 					createdAt
 					updatedAt
 				}
@@ -290,6 +405,11 @@ func (pc *Client) ListByTeam(teamID string, limit int) ([]core.Project, error) {
 						description
 						content
 						state
+					status {
+						id
+						name
+						type
+					}
 						createdAt
 						updatedAt
 					}
@@ -342,11 +462,11 @@ func (pc *Client) ListUserProjects(userID string, limit int) ([]core.Project, er
 	if userID == "" {
 		return nil, &core.ValidationError{Field: "userID", Message: "userID cannot be empty"}
 	}
-	
+
 	if limit <= 0 {
 		limit = 50
 	}
-	
+
 	const query = `
 		query ListUserProjects($filter: ProjectFilter, $first: Int) {
 			projects(filter: $filter, first: $first) {
@@ -356,6 +476,11 @@ func (pc *Client) ListUserProjects(userID string, limit int) ([]core.Project, er
 					description
 					content
 					state
+					status {
+						id
+						name
+						type
+					}
 					createdAt
 					updatedAt
 					issues {
@@ -405,7 +530,7 @@ func (pc *Client) ListUserProjects(userID string, limit int) ([]core.Project, er
 	// to ensure we only return projects where the user actually has assigned issues.
 	var filteredProjects []core.Project
 	for _, project := range response.Projects.Nodes {
-		if len(project.Issues.Nodes) > 0 {
+		if project.Issues != nil && len(project.Issues.Nodes) > 0 {
 			filteredProjects = append(filteredProjects, project)
 		}
 	}
@@ -427,7 +552,162 @@ func (pc *Client) ListUserProjects(userID string, limit int) ([]core.Project, er
 	return filteredProjects, nil
 }
 
-// UpdateProjectInput represents the input for updating a project
+// ListAllProjectsWithStatus retrieves projects matching any of the supplied status IDs.
+// The status predicate is sent to Linear so it is applied before the limit.
+func (pc *Client) ListAllProjectsWithStatus(limit int, statusIDs []string) ([]core.Project, error) {
+	if len(statusIDs) == 0 {
+		return pc.ListAllProjects(limit)
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	const query = `
+		query ListProjects($filter: ProjectFilter, $first: Int) {
+			projects(filter: $filter, first: $first) {
+				nodes {
+					id
+					name
+					description
+					content
+					state
+					status { id name type }
+					createdAt
+					updatedAt
+				}
+			}
+		}
+	`
+	var response struct {
+		Projects struct {
+			Nodes []core.Project `json:"nodes"`
+		} `json:"projects"`
+	}
+	variables := map[string]interface{}{"filter": statusFilterMap(statusIDs), "first": limit}
+	if err := pc.base.ExecuteRequest(query, variables, &response); err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+	pc.extractMetadata(response.Projects.Nodes)
+	return response.Projects.Nodes, nil
+}
+
+// ListByTeamWithStatus retrieves team projects matching any supplied status IDs.
+func (pc *Client) ListByTeamWithStatus(teamID string, limit int, statusIDs []string) ([]core.Project, error) {
+	if len(statusIDs) == 0 {
+		return pc.ListByTeam(teamID, limit)
+	}
+	if teamID == "" {
+		return nil, &core.ValidationError{Field: "teamID", Message: "teamID cannot be empty"}
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	const query = `
+		query ListProjectsByTeam($teamId: String!, $filter: ProjectFilter, $first: Int) {
+			team(id: $teamId) {
+				projects(filter: $filter, first: $first) {
+					nodes {
+						id
+						name
+						description
+						content
+						state
+						status { id name type }
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		}
+	`
+	var response struct {
+		Team struct {
+			Projects struct {
+				Nodes []core.Project `json:"nodes"`
+			} `json:"projects"`
+		} `json:"team"`
+	}
+	variables := map[string]interface{}{"teamId": teamID, "filter": statusFilterMap(statusIDs), "first": limit}
+	if err := pc.base.ExecuteRequest(query, variables, &response); err != nil {
+		return nil, fmt.Errorf("failed to list projects by team: %w", err)
+	}
+	pc.extractMetadata(response.Team.Projects.Nodes)
+	return response.Team.Projects.Nodes, nil
+}
+
+// ListUserProjectsWithStatus retrieves user projects with both predicates applied server-side.
+func (pc *Client) ListUserProjectsWithStatus(userID string, limit int, statusIDs []string) ([]core.Project, error) {
+	if len(statusIDs) == 0 {
+		return pc.ListUserProjects(userID, limit)
+	}
+	if userID == "" {
+		return nil, &core.ValidationError{Field: "userID", Message: "userID cannot be empty"}
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	const query = `
+		query ListUserProjects($filter: ProjectFilter, $first: Int) {
+			projects(filter: $filter, first: $first) {
+				nodes {
+					id
+					name
+					description
+					content
+					state
+					status { id name type }
+					createdAt
+					updatedAt
+					issues { nodes { id assignee { id } } }
+				}
+			}
+		}
+	`
+	filter := map[string]interface{}{
+		"issues": map[string]interface{}{"assignee": map[string]interface{}{"id": map[string]interface{}{"eq": userID}}},
+		"status": map[string]interface{}{"id": map[string]interface{}{"in": statusIDs}},
+	}
+	var response struct {
+		Projects struct {
+			Nodes []core.Project `json:"nodes"`
+		} `json:"projects"`
+	}
+	// Request a larger candidate page because the local assignee safeguard is
+	// applied after decoding; the user-visible limit is applied below.
+	candidateLimit := limit
+	if candidateLimit < 250 {
+		candidateLimit = 250
+	}
+	variables := map[string]interface{}{"filter": filter, "first": candidateLimit}
+	if err := pc.base.ExecuteRequest(query, variables, &response); err != nil {
+		return nil, fmt.Errorf("failed to list user projects: %w", err)
+	}
+	filtered := make([]core.Project, 0, len(response.Projects.Nodes))
+	for _, project := range response.Projects.Nodes {
+		if project.Issues != nil && len(project.Issues.Nodes) > 0 {
+			filtered = append(filtered, project)
+		}
+	}
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	pc.extractMetadata(filtered)
+	return filtered, nil
+}
+
+func (pc *Client) extractMetadata(projects []core.Project) {
+	for i := range projects {
+		if projects[i].Content != "" {
+			projectMetadata, cleanContent := metadata.ExtractMetadataFromDescription(projects[i].Content)
+			projects[i].Metadata = projectMetadata
+			projects[i].Content = cleanContent
+		} else if projects[i].Description != "" {
+			projectMetadata, cleanDescription := metadata.ExtractMetadataFromDescription(projects[i].Description)
+			projects[i].Metadata = projectMetadata
+			projects[i].Description = cleanDescription
+		}
+	}
+}
+
 type UpdateProjectInput struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
@@ -458,6 +738,11 @@ func (pc *Client) UpdateProject(projectID string, input UpdateProjectInput) (*co
 					description
 					content
 					state
+					status {
+						id
+						name
+						type
+					}
 					createdAt
 					updatedAt
 				}
@@ -500,7 +785,7 @@ func (pc *Client) UpdateProject(projectID string, input UpdateProjectInput) (*co
 
 	var response struct {
 		ProjectUpdate struct {
-			Success bool    `json:"success"`
+			Success bool         `json:"success"`
 			Project core.Project `json:"project"`
 		} `json:"projectUpdate"`
 	}
@@ -517,60 +802,51 @@ func (pc *Client) UpdateProject(projectID string, input UpdateProjectInput) (*co
 	return &response.ProjectUpdate.Project, nil
 }
 
-// UpdateProjectState updates the state of a project
-// Why: Projects have states (planned, started, completed, etc.) that need
-// to be updated as work progresses. This method provides that capability.
+// UpdateProjectState updates the state of a project.
+// UpdateProjectStateWithResult retains the mutation's project response for
+// callers that need the named status; the deprecated state write is preserved
+// for compatibility and is not migrated to statusId in this ticket.
 func (pc *Client) UpdateProjectState(projectID, state string) error {
-	// Validate inputs
-	// Why: Both project ID and state are required. Empty values would
-	// cause the mutation to fail with unclear errors.
+	_, err := pc.UpdateProjectStateWithResult(projectID, state)
+	return err
+}
+
+// UpdateProjectStateWithResult updates a project using the legacy state input
+// and returns the response including its named status.
+func (pc *Client) UpdateProjectStateWithResult(projectID, state string) (*core.Project, error) {
 	if projectID == "" {
-		return &core.ValidationError{Field: "projectID", Message: "projectID cannot be empty"}
+		return nil, &core.ValidationError{Field: "projectID", Message: "projectID cannot be empty"}
 	}
 	if state == "" {
-		return &core.ValidationError{Field: "state", Message: "state cannot be empty"}
+		return nil, &core.ValidationError{Field: "state", Message: "state cannot be empty"}
 	}
-	
+
 	const mutation = `
 		mutation UpdateProjectState($projectId: String!, $state: String!) {
-			projectUpdate(
-				id: $projectId,
-				input: { state: $state }
-			) {
+			projectUpdate(id: $projectId, input: { state: $state }) {
 				success
 				project {
 					id
 					state
+					status { id name type }
 				}
 			}
 		}
 	`
-	
-	variables := map[string]interface{}{
-		"projectId": projectID,
-		"state":     state,
-	}
-	
 	var response struct {
 		ProjectUpdate struct {
-			Success bool `json:"success"`
-			Project struct {
-				ID    string `json:"id"`
-				State string `json:"state"`
-			} `json:"project"`
+			Success bool         `json:"success"`
+			Project core.Project `json:"project"`
 		} `json:"projectUpdate"`
 	}
-	
-	err := pc.base.ExecuteRequest(mutation, variables, &response)
-	if err != nil {
-		return fmt.Errorf("failed to update project state: %w", err)
+	variables := map[string]interface{}{"projectId": projectID, "state": state}
+	if err := pc.base.ExecuteRequest(mutation, variables, &response); err != nil {
+		return nil, fmt.Errorf("failed to update project state: %w", err)
 	}
-	
 	if !response.ProjectUpdate.Success {
-		return fmt.Errorf("project state update was not successful")
+		return nil, fmt.Errorf("project state update was not successful")
 	}
-	
-	return nil
+	return &response.ProjectUpdate.Project, nil
 }
 
 // UpdateProjectDescription updates a project's content while preserving metadata
