@@ -15,6 +15,7 @@ type Dependencies struct {
 	Client *linear.Client
 
 	// Stdin is read only when a body or description flag is exactly "-".
+	// Commands return an error if explicit stdin is requested without a reader.
 	Stdin io.Reader
 
 	// Services provide business logic and formatting

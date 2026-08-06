@@ -39,6 +39,13 @@ func TestDescriptionFromFlagOrStdin(t *testing.T) {
 	}
 }
 
+func TestDescriptionFromFlagOrStdinRejectsNilReader(t *testing.T) {
+	_, err := getDescriptionFromFlagOrStdinWithReader("-", nil)
+	if err == nil || !strings.Contains(err.Error(), "stdin reader is not configured") {
+		t.Fatalf("got error %v, want deterministic nil-reader error", err)
+	}
+}
+
 func TestReadStdinFromReturnsReaderError(t *testing.T) {
 	wantErr := errors.New("read failed")
 	_, err := readStdinFrom(errorReader{err: wantErr})

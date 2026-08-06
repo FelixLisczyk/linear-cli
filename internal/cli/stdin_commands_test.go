@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/joa23/linear-cli/internal/service"
 	"github.com/joa23/linear-cli/pkg/linear"
 	"github.com/joa23/linear-cli/pkg/linear/core"
+	"github.com/spf13/cobra"
 )
 
 func TestIssueDescriptionFromExplicitStdinReachesService(t *testing.T) {
@@ -33,7 +37,7 @@ func TestIssueUpdateDescriptionFromExplicitStdinReachesService(t *testing.T) {
 	issues := &recordingIssueService{}
 	deps := &Dependencies{Issues: issues, Stdin: strings.NewReader("  updated body\n")}
 	cmd := NewCmdWithDeps(deps, newIssuesUpdateCmd)
-	cmd.SetArgs([]string{"CEN-123", "--description", "-"})
+	cmd.SetArgs([]string{"CEN-123", "--team", "CEN", "--description", "-"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -128,13 +132,84 @@ func TestExplicitEmptyStdinPreservesExistingSemantics(t *testing.T) {
 	issues := &recordingIssueService{}
 	deps := &Dependencies{Issues: issues, Stdin: strings.NewReader("")}
 	cmd := NewCmdWithDeps(deps, newIssuesUpdateCmd)
-	cmd.SetArgs([]string{"CEN-123", "--description", "-"})
+	cmd.SetArgs([]string{"CEN-123", "--team", "CEN", "--description", "-"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if issues.updated == nil || issues.updated.Description != nil {
 		t.Fatalf("empty update description = %#v, want nil", issues.updated)
+	}
+}
+
+func TestExplicitEmptyStdinForCreatesForwardsEmptyDescription(t *testing.T) {
+	tests := []struct {
+		name        string
+		factory     func() *cobra.Command
+		args        []string
+		description func(*testing.T, *recordingIssueService, *recordingProjectService)
+	}{
+		{
+			name:    "issue",
+			factory: newIssuesCreateCmd,
+			args:    []string{"New issue", "--team", "CEN", "--description", "-"},
+			description: func(t *testing.T, issues *recordingIssueService, _ *recordingProjectService) {
+				if issues.created == nil || issues.created.Description != "" {
+					t.Fatalf("created issue description = %#v, want empty string", issues.created)
+				}
+			},
+		},
+		{
+			name:    "project",
+			factory: newProjectsCreateCmd,
+			args:    []string{"New project", "--team", "CEN", "--description", "-"},
+			description: func(t *testing.T, _ *recordingIssueService, projects *recordingProjectService) {
+				if projects.created == nil || projects.created.Description != "" {
+					t.Fatalf("created project description = %#v, want empty string", projects.created)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issues := &recordingIssueService{}
+			projects := &recordingProjectService{}
+			deps := &Dependencies{Issues: issues, Projects: projects, Stdin: strings.NewReader("")}
+			cmd := NewCmdWithDeps(deps, tt.factory)
+			cmd.SetArgs(tt.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tt.description(t, issues, projects)
+		})
+	}
+}
+
+func TestResolvedDescriptionIsPreservedBeforeAttachmentAppend(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "attachment.txt")
+	if err := os.WriteFile(filePath, []byte("attachment contents"), 0o600); err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+
+	issues := &recordingIssueService{}
+	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer uploadServer.Close()
+	transport := &recordingCommentTransport{uploadURL: uploadServer.URL + "/attachment"}
+	client := linear.NewClient("test-token")
+	client.GetBase().SetHTTPClient(&http.Client{Transport: transport})
+	deps := &Dependencies{Client: client, Issues: issues, Stdin: strings.NewReader("resolved body\n")}
+	cmd := NewCmdWithDeps(deps, newIssuesCreateCmd)
+	cmd.SetArgs([]string{"New issue", "--team", "CEN", "--description", "-", "--attach", filePath})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "resolved body\n\n![attachment.txt](https://assets.test/attachment.txt)"
+	if issues.created == nil || issues.created.Description != want {
+		t.Fatalf("created description = %#v, want %q", issues.created, want)
 	}
 }
 
@@ -154,38 +229,35 @@ func TestExplicitStdinReadErrorsAreWrapped(t *testing.T) {
 }
 
 func TestEmptyStdinRejectsCommentAndReply(t *testing.T) {
-	tests := []struct {
-		name  string
-		args  []string
-		check func(*recordingIssueService) bool
-	}{
-		{name: "comment", args: []string{"CEN-123", "--body", "-"}, check: func(issues *recordingIssueService) bool {
-			return issues.replyBody == ""
-		}},
-		{name: "reply", args: []string{"CEN-123", "comment-123", "--body", "-"}, check: func(issues *recordingIssueService) bool {
-			return issues.replyBody == ""
-		}},
-	}
+	t.Run("comment rejects before making client requests", func(t *testing.T) {
+		transport := &recordingCommentTransport{}
+		client := linear.NewClient("test-token")
+		client.GetBase().SetHTTPClient(&http.Client{Transport: transport})
+		deps := &Dependencies{Client: client, Stdin: strings.NewReader("")}
+		cmd := NewCmdWithDeps(deps, newIssuesCommentCmd)
+		cmd.SetArgs([]string{"CEN-123", "--body", "-"})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			issues := &recordingIssueService{}
-			client := linear.NewClient("test-token")
-			deps := &Dependencies{Client: client, Issues: issues, Stdin: strings.NewReader("")}
-			factory := newIssuesReplyCmd
-			if tt.name == "comment" {
-				factory = newIssuesCommentCmd
-			}
-			cmd := NewCmdWithDeps(deps, factory)
-			cmd.SetArgs(tt.args)
-			if err := cmd.Execute(); err == nil {
-				t.Fatal("expected empty body error")
-			}
-			if !tt.check(issues) {
-				t.Fatal("empty body reached service")
-			}
-		})
-	}
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("expected empty body error")
+		}
+		if transport.requests != 0 {
+			t.Fatalf("empty comment made %d client requests, want zero", transport.requests)
+		}
+	})
+
+	t.Run("reply rejects before calling service", func(t *testing.T) {
+		issues := &recordingIssueService{}
+		deps := &Dependencies{Issues: issues, Stdin: strings.NewReader("")}
+		cmd := NewCmdWithDeps(deps, newIssuesReplyCmd)
+		cmd.SetArgs([]string{"CEN-123", "comment-123", "--body", "-"})
+
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("expected empty body error")
+		}
+		if issues.replyBody != "" {
+			t.Fatal("empty reply reached service")
+		}
+	})
 }
 
 type recordingIssueService struct {
@@ -254,10 +326,22 @@ func (s *recordingProjectService) Update(_ string, input *service.UpdateProjectI
 }
 
 type recordingCommentTransport struct {
-	body string
+	body      string
+	requests  int
+	uploadURL string
 }
 
 func (t *recordingCommentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.requests++
+	if req.Method == http.MethodPut {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	}
+
 	payload, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
@@ -271,7 +355,9 @@ func (t *recordingCommentTransport) RoundTrip(req *http.Request) (*http.Response
 	}
 
 	response := `{"data":{"issue":{"id":"issue-id","identifier":"CEN-123","title":"Test issue"}}}`
-	if strings.Contains(request.Query, "commentCreate") {
+	if strings.Contains(request.Query, "fileUpload") {
+		response = fmt.Sprintf(`{"data":{"fileUpload":{"success":true,"uploadFile":{"uploadUrl":%q,"assetUrl":"https://assets.test/attachment.txt","headers":[]}}}}`, t.uploadURL)
+	} else if strings.Contains(request.Query, "commentCreate") {
 		t.body, _ = request.Variables["body"].(string)
 		response = `{"data":{"commentCreate":{"success":true,"comment":{"id":"comment-id","body":"comment body","user":{"id":"user-id","name":"Test User","email":"test@example.com"},"issue":{"id":"issue-id","identifier":"CEN-123"}}}}}`
 	}
