@@ -919,6 +919,9 @@ func (ic *Client) SearchIssuesEnhanced(filters *core.IssueSearchFilters) (*core.
 						name
 						email
 					}
+					priority
+					estimate
+					dueDate
 					labels {
 						nodes {
 							id
@@ -930,9 +933,6 @@ func (ic *Client) SearchIssuesEnhanced(filters *core.IssueSearchFilters) (*core.
 							}
 						}
 					}
-					priority
-					estimate
-					dueDate
 					createdAt
 					updatedAt
 					url
@@ -1900,9 +1900,6 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 					identifier
 					title
 					description
-					priority
-					estimate
-					dueDate
 					createdAt
 					updatedAt
 					state {
@@ -1933,6 +1930,9 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 						name
 						email
 					}
+					priority
+					estimate
+					dueDate
 					labels {
 						nodes {
 							id
@@ -1993,17 +1993,17 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 				Title       string        `json:"title"`
 				Description string        `json:"description"`
 				Priority    int           `json:"priority"`
-				Estimate    *float64      `json:"estimate"`
-				DueDate     *string       `json:"dueDate"`
+				Estimate    *float64      `json:"estimate,omitempty"`
+				DueDate     *string       `json:"dueDate,omitempty"`
 				CreatedAt   string        `json:"createdAt"`
 				UpdatedAt   string        `json:"updatedAt"`
 				State       core.WorkflowState `json:"state"`
-				Assignee    *core.User         `json:"assignee"`
-				Delegate    *core.User         `json:"delegate"`
+				Assignee    *core.User         `json:"assignee,omitempty"`
+				Delegate    *core.User         `json:"delegate,omitempty"`
 				Labels      struct {
 					Nodes []core.Label `json:"nodes"`
 				} `json:"labels"`
-				Project *core.Project `json:"project"`
+				Project *core.Project `json:"project,omitempty"`
 				Team core.Team     `json:"team"`
 			} `json:"nodes"`
 			PageInfo struct {
