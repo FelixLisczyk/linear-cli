@@ -442,6 +442,7 @@ func TestIssueService_Create_ReportsAppliedLabels(t *testing.T) {
 		issue.Assignee = &core.User{ID: "user-1", Name: "Ada", Email: "ada@example.com"}
 		issue.Creator = &core.User{ID: "user-2", Name: "Grace", Email: "grace@example.com"}
 		issue.Project = &core.Project{ID: "project-uuid", Name: "Platform"}
+		issue.Parent = &core.ParentIssue{ID: "parent-uuid", Identifier: "ABC-100", Title: "Parent issue"}
 		issue.CreatedAt = "2026-03-01T10:00:00.000Z"
 		issue.UpdatedAt = "2026-03-01T11:00:00.000Z"
 
@@ -467,6 +468,9 @@ func TestIssueService_Create_ReportsAppliedLabels(t *testing.T) {
 			Assignee   *struct{ Name string } `json:"assignee"`
 			Creator    *struct{ Name string } `json:"creator"`
 			Project    *struct{ Name string } `json:"project"`
+			Parent     *struct {
+				Identifier string `json:"identifier"`
+			} `json:"parent"`
 		}
 		if err := json.Unmarshal([]byte(out), &got); err != nil {
 			t.Fatalf("create --output json is not valid JSON: %v\n%s", err, out)
@@ -489,6 +493,9 @@ func TestIssueService_Create_ReportsAppliedLabels(t *testing.T) {
 		}
 		if got.Project == nil || got.Project.Name != "Platform" {
 			t.Errorf("project = %+v, want Platform", got.Project)
+		}
+		if got.Parent == nil || got.Parent.Identifier != "ABC-100" {
+			t.Errorf("parent = %+v, want ABC-100", got.Parent)
 		}
 	})
 }
@@ -551,8 +558,15 @@ func TestIssueService_Create_MutationFailureEmitsNoJSON(t *testing.T) {
 //
 // The mock-based tests above cannot do this — they hand back a core.Issue the
 // test built itself, so they would stay green if the mutation stopped asking for
-// labels. This one fails if either layer regresses. It does not replace them:
-// their injectable failures are what cover the error paths.
+// labels. This one fails if either layer regresses, but only because its handler
+// asserts on the captured mutation: the canned response below carries labels
+// unconditionally, so without that assertion the selection set would go
+// uncovered here. The per-field guard lives in
+// TestCreateIssue_MutationRequestsCallerSettableFields
+// (pkg/linear/issues/client_create_test.go).
+//
+// This test does not replace the mocks either: their injectable failures are
+// what cover the error paths.
 func TestIssueService_Create_EndToEndReportsLabels(t *testing.T) {
 	const response = `{
 		"data": {
@@ -574,6 +588,18 @@ func TestIssueService_Create_EndToEndReportsLabels(t *testing.T) {
 	}`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The canned response carries labels whatever the mutation asked for, so
+		// the selection set is only covered if the request is actually inspected.
+		// Brace-anchored: a bare "labels" would also match labelIds in the input.
+		var payload struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("outgoing GraphQL request is not valid JSON: %v", err)
+		} else if !regexp.MustCompile(`(?m)^\s*labels\s*\{\s*$`).MatchString(payload.Query) {
+			t.Errorf("the issueCreate mutation never asks for labels back:\n%s", payload.Query)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(response))
 	}))

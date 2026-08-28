@@ -128,10 +128,16 @@ func TestIssueToFullDTO_LabelsReportIDAndNameOnly(t *testing.T) {
 
 	// LabelDTO deliberately bounds the output surface: color and parent are
 	// selected from the API but must not reach the rendered JSON.
+	//
+	// Asserted against the labels elements' own key sets rather than by scanning
+	// the whole document, so the test keeps guarding what it means to guard if
+	// minimalIssue() ever gains a field whose text contains "color" or "Platform".
 	got := marshalJSON(t, dto)
-	for _, dropped := range []string{"color", "#eb5757", "label-parent", "Platform"} {
-		if strings.Contains(got, dropped) {
-			t.Errorf("label output leaked %q — LabelDTO should expose only id and name\ngot: %s", dropped, got)
+	for i, keys := range unmarshalKeySets(t, got, "labels") {
+		for key := range keys {
+			if key != "id" && key != "name" {
+				t.Errorf("labels[%d] leaked %q — LabelDTO should expose only id and name\ngot: %s", i, key, got)
+			}
 		}
 	}
 }
@@ -141,7 +147,36 @@ func TestIssueToFullDTO_NilDelegateOmitsTheKey(t *testing.T) {
 	// later "cleanup" that harmonises Delegate with the collections.
 	got := marshalJSON(t, IssueToFullDTO(minimalIssue()))
 
-	if strings.Contains(got, `"delegate"`) {
+	// Checked against the top-level key set, not the raw document, so unrelated
+	// content that happens to spell "delegate" cannot fail this test.
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(got), &top); err != nil {
+		t.Fatalf("DTO output is not a JSON object: %v\n%s", err, got)
+	}
+	if _, present := top["delegate"]; present {
 		t.Errorf("expected the delegate key to be omitted entirely for a nil delegate\ngot: %s", got)
 	}
+}
+
+// unmarshalKeySets returns the key set of every element of the named array field,
+// so tests can assert on a field's actual shape instead of substring-scanning the
+// whole marshalled document.
+func unmarshalKeySets(t *testing.T, doc, field string) []map[string]json.RawMessage {
+	t.Helper()
+
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(doc), &top); err != nil {
+		t.Fatalf("DTO output is not a JSON object: %v\n%s", err, doc)
+	}
+
+	raw, present := top[field]
+	if !present {
+		t.Fatalf("DTO output has no %q key\n%s", field, doc)
+	}
+
+	var elements []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &elements); err != nil {
+		t.Fatalf("%q is not an array of objects: %v\n%s", field, err, doc)
+	}
+	return elements
 }
