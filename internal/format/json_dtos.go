@@ -271,6 +271,20 @@ func IssueToCompactDTO(issue *core.Issue) IssueCompactDTO {
 }
 
 // populateIssueBase populates the shared base fields from a core.Issue.
+//
+// Empty collections are rendered as `[]`, never `null` and never an omitted key.
+// Why: a consumer reading `.labels` gets an iterable array in every case, instead
+// of having to handle missing-key / null / list as three separate shapes. A
+// collection rendered as `null` is ambiguous between "this issue has none" and
+// "this renderer does not report them" — that ambiguity is exactly what made a
+// label-less `issues create --output json` response indistinguishable from a
+// broken one.
+//
+// Delegate deliberately differs: it keeps `omitempty` and disappears when nil.
+// That is correct and must not be "harmonised" with the collections. An absent
+// scalar/object field unambiguously means "no delegate", whereas an absent or
+// null *collection* is ambiguous. Flipping either one to match the other
+// reintroduces the confusion.
 func populateIssueBase(issue *core.Issue) issueBaseFields {
 	base := issueBaseFields{
 		Identifier:  issue.Identifier,
@@ -312,13 +326,13 @@ func populateIssueBase(issue *core.Issue) issueBaseFields {
 		}
 	}
 
-	if issue.Labels != nil && len(issue.Labels.Nodes) > 0 {
-		base.Labels = make([]LabelDTO, len(issue.Labels.Nodes))
-		for i, label := range issue.Labels.Nodes {
-			base.Labels[i] = LabelDTO{
+	base.Labels = []LabelDTO{}
+	if issue.Labels != nil {
+		for _, label := range issue.Labels.Nodes {
+			base.Labels = append(base.Labels, LabelDTO{
 				ID:   label.ID,
 				Name: label.Name,
-			}
+			})
 		}
 	}
 
@@ -345,21 +359,19 @@ func populateIssueBase(issue *core.Issue) issueBaseFields {
 		}
 	}
 
-	if issue.Children.Nodes != nil && len(issue.Children.Nodes) > 0 {
-		base.Children = make([]IssueRefDTO, len(issue.Children.Nodes))
-		for i, child := range issue.Children.Nodes {
-			base.Children[i] = IssueRefDTO{
-				Identifier: child.Identifier,
-				Title:      child.Title,
-				State:      child.State.Name,
-			}
-		}
+	base.Children = []IssueRefDTO{}
+	for _, child := range issue.Children.Nodes {
+		base.Children = append(base.Children, IssueRefDTO{
+			Identifier: child.Identifier,
+			Title:      child.Title,
+			State:      child.State.Name,
+		})
 	}
 
-	if issue.Attachments != nil && len(issue.Attachments.Nodes) > 0 {
-		base.Attachments = make([]AttachmentDTO, len(issue.Attachments.Nodes))
-		for i, att := range issue.Attachments.Nodes {
-			base.Attachments[i] = AttachmentToDTO(&att)
+	base.Attachments = []AttachmentDTO{}
+	if issue.Attachments != nil {
+		for _, att := range issue.Attachments.Nodes {
+			base.Attachments = append(base.Attachments, AttachmentToDTO(&att))
 		}
 	}
 
