@@ -10,7 +10,12 @@ import (
 
 // emptyCollectionKeys are the JSON keys that must render as `[]` rather than
 // `null` when the issue carries none of that collection.
-var emptyCollectionKeys = []string{"labels", "children", "attachments"}
+//
+// comments is included even though create never requests it, so a created issue
+// reports "comments": [] for a field the server was never asked about. That is
+// the accepted cost of a uniform contract: the DTO describes the shape it
+// renders, not the wire response it was built from.
+var emptyCollectionKeys = []string{"labels", "children", "attachments", "comments"}
 
 // minimalIssue is an issue with every collection left unset — the shape a freshly
 // created, label-less issue arrives in.

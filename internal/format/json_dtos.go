@@ -382,10 +382,13 @@ func populateIssueBase(issue *core.Issue) issueBaseFields {
 func IssueToFullDTO(issue *core.Issue) IssueFullDTO {
 	dto := IssueFullDTO{issueBaseFields: populateIssueBase(issue)}
 
-	if issue.Comments != nil && len(issue.Comments.Nodes) > 0 {
-		dto.Comments = make([]CommentDTO, len(issue.Comments.Nodes))
-		for i, comment := range issue.Comments.Nodes {
-			dto.Comments[i] = CommentDTO{
+	// Empty renders as [], for the reasons documented on populateIssueBase.
+	// Emitting `"labels": []` next to `"comments": null` in the same object would
+	// reproduce the very ambiguity that fix removes.
+	dto.Comments = []CommentDTO{}
+	if issue.Comments != nil {
+		for _, comment := range issue.Comments.Nodes {
+			dto.Comments = append(dto.Comments, CommentDTO{
 				ID:   comment.ID,
 				Body: comment.Body,
 				User: &UserDTO{
@@ -393,7 +396,7 @@ func IssueToFullDTO(issue *core.Issue) IssueFullDTO {
 					Name: comment.User.Name,
 				},
 				CreatedAt: comment.CreatedAt,
-			}
+			})
 		}
 	}
 
@@ -404,18 +407,19 @@ func IssueToFullDTO(issue *core.Issue) IssueFullDTO {
 func IssueToDetailedDTO(issue *core.Issue) IssueDetailedDTO {
 	dto := IssueDetailedDTO{issueBaseFields: populateIssueBase(issue)}
 
-	if issue.Comments != nil && len(issue.Comments.Nodes) > 0 {
-		dto.Comments = make([]CommentSummaryDTO, len(issue.Comments.Nodes))
-		for i, comment := range issue.Comments.Nodes {
-			dto.Comments[i] = CommentSummaryDTO{
-				ID:        comment.ID,
-				Body:      truncate(cleanDescription(comment.Body), 200),
+	// Empty renders as [], matching IssueToFullDTO and populateIssueBase.
+	dto.Comments = []CommentSummaryDTO{}
+	if issue.Comments != nil {
+		for _, comment := range issue.Comments.Nodes {
+			dto.Comments = append(dto.Comments, CommentSummaryDTO{
+				ID:   comment.ID,
+				Body: truncate(cleanDescription(comment.Body), 200),
 				User: &UserDTO{
 					ID:   comment.User.ID,
 					Name: comment.User.Name,
 				},
 				CreatedAt: comment.CreatedAt,
-			}
+			})
 		}
 	}
 
