@@ -804,6 +804,13 @@ func (ic *Client) ListAssignedIssues(limit int) ([]core.Issue, error) {
 						name
 						email
 					}
+					delegate {
+						id
+						name
+						email
+					}
+					estimate
+					dueDate
 					createdAt
 					updatedAt
 					url
@@ -831,7 +838,7 @@ func (ic *Client) ListAssignedIssues(limit int) ([]core.Issue, error) {
 			}
 		}
 	`
-	
+
 	// Filter for issues assigned to the current user
 	// Why: The "me" identifier is Linear's way of referring to the
 	// authenticated user without needing to know their specific ID.
@@ -907,6 +914,11 @@ func (ic *Client) SearchIssuesEnhanced(filters *core.IssueSearchFilters) (*core.
 						name
 						email
 					}
+					delegate {
+						id
+						name
+						email
+					}
 					labels {
 						nodes {
 							id
@@ -919,6 +931,8 @@ func (ic *Client) SearchIssuesEnhanced(filters *core.IssueSearchFilters) (*core.
 						}
 					}
 					priority
+					estimate
+					dueDate
 					createdAt
 					updatedAt
 					url
@@ -1887,6 +1901,8 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 					title
 					description
 					priority
+					estimate
+					dueDate
 					createdAt
 					updatedAt
 					state {
@@ -1911,6 +1927,11 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 						active
 						createdAt
 						isMe
+					}
+					delegate {
+						id
+						name
+						email
 					}
 					labels {
 						nodes {
@@ -1972,10 +1993,13 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 				Title       string        `json:"title"`
 				Description string        `json:"description"`
 				Priority    int           `json:"priority"`
+				Estimate    *float64      `json:"estimate"`
+				DueDate     *string       `json:"dueDate"`
 				CreatedAt   string        `json:"createdAt"`
 				UpdatedAt   string        `json:"updatedAt"`
 				State       core.WorkflowState `json:"state"`
 				Assignee    *core.User         `json:"assignee"`
+				Delegate    *core.User         `json:"delegate"`
 				Labels      struct {
 					Nodes []core.Label `json:"nodes"`
 				} `json:"labels"`
@@ -2010,10 +2034,13 @@ func (ic *Client) ListAllIssues(filter *core.IssueFilter) (*core.ListAllIssuesRe
 			Title:       node.Title,
 			Description: node.Description,
 			Priority:    node.Priority,
+			Estimate:    node.Estimate,
+			DueDate:     node.DueDate,
 			CreatedAt:   node.CreatedAt,
 			UpdatedAt:   node.UpdatedAt,
 			State:       node.State,
 			Assignee:    node.Assignee,
+			Delegate:    node.Delegate,
 			Labels:      node.Labels.Nodes,
 			Project:     node.Project,
 			Team:        node.Team,
